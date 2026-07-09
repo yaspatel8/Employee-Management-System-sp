@@ -566,7 +566,6 @@ CREATE TYPE dbo.EmployeeUpdateType AS TABLE
     EmployeeId INT NOT NULL,
     FullName NVARCHAR(100) ,
     Email NVARCHAR(100) ,
-    PhoneNumber NVARCHAR(20),
     Salary DECIMAL(18,2),
     DepartmentId INT,
     IsActive BIT
@@ -591,7 +590,7 @@ BEGIN
         BEGIN TRANSACTION;
         UPDATE E
         SET    E.Salary       = COALESCE (EU.Salary, E.Salary),
-               E.DepartmentId = COALESCE (EU.DepartmentId, E.DepartmentId),
+               E.DepartmentId = EU.DepartmentId,
                E.UpdatedAt    = GETDATE(),
                E.IsActive     = COALESCE (EU.IsActive, E.IsActive),
                E.UpdatedBy    = @UpdatedBy
@@ -643,5 +642,55 @@ BEGIN
     END CATCH
 END
 
+
+GO
+
+--export employee data to excel
+CREATE TYPE dbo.IdListType AS TABLE
+(
+     Id INT NOT NULL PRIMARY KEY
+);
+GO
+
+CREATE OR ALTER PROCEDURE SP_ExportEmployees
+(
+    @EmployeeIds dbo.IdListType READONLY
+)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT
+        E.EmployeeId,
+        U.FullName,
+        U.Email,
+        COALESCE(E.Salary, 0) AS Salary,
+        COALESCE(E.PhoneNumber, 'Not Available') AS PhoneNumber,
+        CoALESCE(D.DepartmentName, '-- Not Assigned --') AS DepartmentName,
+        CASE WHEN E.IsActive = 1 THEN 'Yes' ELSE 'No' END AS IsActive,
+        CASE WHEN E.IsDeleted = 1 THEN 'Yes' ELSE 'No' END AS IsDeleted,
+        E.CreatedAt AS DateOfJoining,
+        E.UpdatedAt
+    FROM Employee E
+    INNER JOIN Users U
+        ON E.UserId = U.UserId
+    LEFT JOIN Department D
+        ON E.DepartmentId = D.DepartmentId
+    WHERE
+        NOT EXISTS (SELECT 1 FROM @EmployeeIds)
+        OR E.EmployeeId IN (SELECT Id FROM @EmployeeIds)
+    ORDER BY E.EmployeeId;
+
+    IF @@ROWCOUNT = 0
+    BEGIN
+        SELECT 0 AS Code,
+               'No employees found.' AS Message;
+    END
+    ELSE
+    BEGIN
+        SELECT 1 AS Code,
+               'Employees exported successfully.' AS Message;
+    END
+END
 
 GO
