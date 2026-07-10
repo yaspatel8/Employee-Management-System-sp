@@ -13,11 +13,22 @@ CREATE TABLE Employee(
 	ProfileImage NVARCHAR(MAX) NULL,
 	UpdatedBy INT NULL,
 	CreatedBy INT NULL,
-	CONSTRAINT fk_user FOREIGN KEY(UserId) REFERENCES Users(UserId)
+    PositionId INT NULL,
+    ManagerId INT NULL,
+	CONSTRAINT fk_user FOREIGN KEY(UserId) REFERENCES Users(UserId),
+    CONSTRAINT FK_Employee_Position FOREIGN KEY(PositionId) REFERENCES Position(PositionId),
+    CONSTRAINT FK_Employee_Manager FOREIGN KEY (ManagerId) REFERENCES Employee(EmployeeId)
 )
 
 GO
 
+--ALTER TABLE Employee
+--ADD ManagerId INT NULL;
+
+--ALTER TABLE Employee
+--ADD CONSTRAINT FK_Employee_Manager
+--FOREIGN KEY (ManagerId)
+--REFERENCES Employee(EmployeeId);
 
 --CREATE OR ALTER PROCEDURE SP_Employee_Insert
 --@EmployeeName NVARCHAR(200),@EmployeeEmail NVARCHAR(250),@PhoneNumber NVARCHAR(20),@Salary DECIMAL(18,2),@DepartmentId INT
@@ -87,12 +98,15 @@ BEGIN
         E.PhoneNumber,
         E.Salary,
         D.DepartmentName,
-        U.IsActive
+        U.IsActive,
+        P.PositionName
     FROM Employee E
     RIGHT JOIN Users U
         ON E.UserId = U.UserId
     LEFT JOIN Department D
         ON E.DepartmentId = D.DepartmentId
+    LEFT JOIN Position P
+        ON E.PositionId = P.PositionId
     WHERE E.IsDeleted = 0;
 
 END
@@ -111,7 +125,10 @@ CREATE OR ALTER PROCEDURE SP_Employee_Save
 	@ProfileImage NVARCHAR(MAX) = NULL,
 	@OldFileName NVARCHAR(200) OUTPUT,
 	@UpdatedBy INT = NULL,
-	@CreatedBy INT = NULL
+	@CreatedBy INT = NULL,
+    @PositionId INT = NULL,
+    @ManagerId INT = NULL
+  
 )
 AS
 BEGIN
@@ -171,9 +188,9 @@ BEGIN
 		        Salary,
 		        DepartmentId,
 				ProfileImage,
-				CreatedBy
-				
-				
+				CreatedBy,
+				PositionId,
+                ManagerId
 		    )
 		    VALUES
 		    (
@@ -182,8 +199,10 @@ BEGIN
 		        @Salary,
 		        @DepartmentId,
 				@ProfileImage,
-				@CreatedBy
-
+				@CreatedBy,
+                @PositionId,
+                @ManagerId
+              
 		    );
 
 			IF(@@ROWCOUNT > 0)
@@ -250,7 +269,10 @@ BEGIN
             DepartmentId = @DepartmentId,
 			ProfileImage = ISNULL(@ProfileImage, ProfileImage),
             UpdatedAt = GETDATE(),
-			UpdatedBy = @UpdatedBy
+			UpdatedBy = @UpdatedBy,
+            PositionId = @PositionId,
+            ManagerId = @ManagerId
+
         WHERE EmployeeId = @EmployeeId;
 
         IF(@@ROWCOUNT > 0)
@@ -295,6 +317,8 @@ BEGIN
         ON E.DepartmentId = D.DepartmentId
     INNER JOIN Roles R
         ON U.RoleId = R.RoleId
+    LEFT JOIN Position P 
+        ON E.PositionId = P.PositionId
     WHERE E.IsDeleted = 0
       AND (
             @SearchText IS NULL
@@ -304,6 +328,7 @@ BEGIN
          OR CAST(E.Salary AS NVARCHAR(50)) LIKE '%' + @SearchText + '%'
          OR LOWER(D.DepartmentName) LIKE '%' + LOWER(@SearchText) + '%'
          OR LOWER(R.RoleName) LIKE '%' + LOWER(@SearchText) + '%'
+         OR LOWER(P.PositionName) LIKE '%' + LOWER(@SearchText) + '%'
          OR E.EmployeeId = TRY_CAST(@SearchText AS INT)
          OR E.DepartmentId = TRY_CAST(@SearchText AS INT)
       );
@@ -341,7 +366,10 @@ BEGIN
         D.DepartmentName,
         U.RoleId,
         R.RoleName,
+        P.PositionId,
+        P.PositionName,
         E.ProfileImage,
+      
         U.IsActive,
         E.CreatedAt,
         ' + CAST(@TotalRecords AS NVARCHAR(20)) + ' AS TotalRecords
@@ -352,6 +380,9 @@ BEGIN
         ON E.DepartmentId = D.DepartmentId
     INNER JOIN Roles R
         ON U.RoleId = R.RoleId
+    LEFT JOIN Position P
+        ON E.PositionId = P.PositionId
+    
     WHERE E.IsDeleted = 0
       AND (
             @SearchText IS NULL
@@ -361,8 +392,12 @@ BEGIN
          OR CAST(E.Salary AS NVARCHAR(50)) LIKE ''%'' + @SearchText + ''%''
          OR LOWER(D.DepartmentName) LIKE ''%'' + LOWER(@SearchText) + ''%''
          OR LOWER(R.RoleName) LIKE ''%'' + LOWER(@SearchText) + ''%''
+         OR LOWER(P.PositionName) LIKE ''%'' + LOWER(@SearchText) + ''%''
          OR E.EmployeeId = TRY_CAST(@SearchText AS INT)
          OR E.DepartmentId = TRY_CAST(@SearchText AS INT)
+         OR E.PositionId = TRY_CAST(@SearchText AS INT)
+     
+
       )
     ORDER BY ' + 
     CASE @SortColumn
@@ -373,7 +408,9 @@ BEGIN
         WHEN 'Salary' THEN 'E.Salary'
         WHEN 'DepartmentName' THEN 'D.DepartmentName'
         WHEN 'RoleName' THEN 'R.RoleName'
+        WHEN 'PositionName' THEN 'P.PositionName'
         WHEN 'CreatedAt' THEN 'E.CreatedAt'
+     
         WHEN 'IsActive' THEN 'U.IsActive'
     END + ' ' + @SortOrder + '
     OFFSET (@PageNumber - 1) * @PageSize ROWS
@@ -667,15 +704,19 @@ BEGIN
         COALESCE(E.Salary, 0) AS Salary,
         COALESCE(E.PhoneNumber, 'Not Available') AS PhoneNumber,
         CoALESCE(D.DepartmentName, '-- Not Assigned --') AS DepartmentName,
+        CoALESCE(P.PositionName, '-- Not Assigned --') AS PositionName,
         CASE WHEN E.IsActive = 1 THEN 'Yes' ELSE 'No' END AS IsActive,
         CASE WHEN E.IsDeleted = 1 THEN 'Yes' ELSE 'No' END AS IsDeleted,
         E.CreatedAt AS DateOfJoining,
         E.UpdatedAt
+      
     FROM Employee E
     INNER JOIN Users U
         ON E.UserId = U.UserId
     LEFT JOIN Department D
         ON E.DepartmentId = D.DepartmentId
+    LEFT JOIN Position P
+        ON E.PositionId = P.PositionId
     WHERE
         NOT EXISTS (SELECT 1 FROM @EmployeeIds)
         OR E.EmployeeId IN (SELECT Id FROM @EmployeeIds)
@@ -694,3 +735,71 @@ BEGIN
 END
 
 GO
+
+CREATE OR ALTER PROCEDURE SP_GetManagers 
+(
+      @DepartmentId INT,
+      @PositionId INT
+)
+AS
+BEGIN   
+
+    SET NOCOUNT ON;
+
+    DECLARE @Level INT;
+
+    SELECT
+        @Level = Level
+    FROM Position
+    WHERE PositionId = @PositionId;
+
+    SELECT
+
+        E.EmployeeId,
+
+        U.FullName,
+
+        P.PositionName,
+       
+        DP.DepartmentName,
+         U.Email
+
+    FROM Employee E
+
+    INNER JOIN Users U ON E.UserId = U.UserId
+        
+    INNER JOIN Position P
+        ON E.PositionId = P.PositionId
+
+    LEFT JOIN Department DP
+        ON E.DepartmentId = DP.DepartmentId
+
+    INNER JOIN Roles R ON U.RoleId = R.RoleId
+
+    WHERE
+
+       E.IsActive = 1
+
+        -- CEO (Admin) hamesha dropdown me aayega
+        AND
+        (
+            R.RoleName = 'admin'
+
+            OR
+
+            E.DepartmentId = @DepartmentId
+        )
+
+        -- Sirf higher designation wale
+        AND P.Level < @Level
+
+    ORDER BY
+        CASE
+            WHEN R.RoleName = 'admin' THEN 0
+            ELSE 1
+        END,
+        p.Level,
+        u.FullName;
+
+END
+GO  
